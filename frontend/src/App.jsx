@@ -1,0 +1,332 @@
+import { useEffect, useRef, useState } from "react";
+import "./App.css";
+
+const SUGGESTIONS = [
+  "What can I ask you to do?",
+  "Which one of my projects is performing the best?",
+  "What projects should I be concerned about right now?",
+];
+
+const SunIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path
+      d="M12 4V2M12 22v-2M4 12H2M22 12h-2M6.34 6.34 4.93 4.93M19.07 19.07l-1.41-1.41M17.66 6.34l1.41-1.41M6.34 17.66l-1.41 1.41M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+const MoonIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path
+      d="M20 15.5A8.5 8.5 0 0 1 8.5 4a8.5 8.5 0 1 0 11.5 11.5Z"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+const formatBotMessage = (data) => {
+  if (data.error) {
+    return {
+      role: "bot",
+      tone: "error",
+      content: `${data.error}${data.details ? `\n${data.details}` : ""}`,
+    };
+  }
+
+  if (data.action === "explain") {
+    return {
+      role: "bot",
+      tone: "default",
+      content: data.result || "No explanation was returned.",
+    };
+  }
+
+  return {
+    role: "bot",
+    tone: "default",
+    content: `SQL: ${data.sql || "N/A"}\n\nResult:\n${JSON.stringify(
+      data.result,
+      null,
+      2
+    )}`,
+  };
+};
+
+function App() {
+  const [query, setQuery] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [theme, setTheme] = useState(() => {
+    const savedTheme = localStorage.getItem("copilot-theme");
+    return savedTheme || "light";
+  });
+  const messagesRef = useRef(null);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("copilot-theme", theme);
+  }, [theme]);
+
+  useEffect(() => {
+    const container = messagesRef.current;
+    if (!container) return;
+
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: "smooth",
+    });
+    setShowScrollToBottom(false);
+  }, [messages, isLoading]);
+
+  const updateScrollState = () => {
+    const container = messagesRef.current;
+    if (!container) return;
+
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    setShowScrollToBottom(distanceFromBottom > 120);
+  };
+
+  const scrollToBottom = () => {
+    const container = messagesRef.current;
+    if (!container) return;
+
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: "smooth",
+    });
+  };
+
+  const toggleTheme = () => {
+    setTheme((currentTheme) => (currentTheme === "light" ? "dark" : "light"));
+  };
+
+  const sendQuery = async (nextQuery) => {
+    const value = (nextQuery ?? query).trim();
+    if (!value || isLoading) return;
+
+    const userMessage = { role: "user", content: value };
+    setMessages((prev) => [...prev, userMessage]);
+    setIsLoading(true);
+    setQuery("");
+
+    try {
+      const res = await fetch("http://127.0.0.1:8000/query", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query: value }),
+      });
+
+      const data = await res.json();
+      setMessages((prev) => [...prev, formatBotMessage(data)]);
+    } catch (error) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "bot",
+          tone: "error",
+          content: `Server error\n${error.message}`,
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    sendQuery();
+  };
+
+  const isEmpty = messages.length === 0;
+
+  return (
+    <div className="app-shell">
+      <div className="app-frame">
+        {isEmpty && (
+          <nav className="topbar">
+            <div className="brand">
+              <span className="brand-mark" aria-hidden="true">
+                *
+              </span>
+              <div>
+                <p className="brand-title">AI Data Copilot</p>
+                <p className="brand-subtitle">Database analytics assistant</p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="theme-toggle"
+              onClick={toggleTheme}
+              aria-label={`Switch to ${
+                theme === "light" ? "dark" : "light"
+              } mode`}
+            >
+              <span className="theme-icon">
+                <SunIcon />
+              </span>
+              <span className="theme-toggle-track" aria-hidden="true">
+                <span className="theme-toggle-thumb" />
+              </span>
+              <span className="theme-icon">
+                <MoonIcon />
+              </span>
+            </button>
+          </nav>
+        )}
+
+        {!isEmpty && (
+          <button
+            type="button"
+            className="theme-toggle theme-toggle-floating"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${
+              theme === "light" ? "dark" : "light"
+            } mode`}
+          >
+            <span className="theme-icon">
+              <SunIcon />
+            </span>
+            <span className="theme-toggle-track" aria-hidden="true">
+              <span className="theme-toggle-thumb" />
+            </span>
+            <span className="theme-icon">
+              <MoonIcon />
+            </span>
+          </button>
+        )}
+
+        <main className={`hero-panel ${isEmpty ? "is-empty" : "has-chat"}`}>
+          <div className="ambient ambient-pink" aria-hidden="true" />
+          <div className="ambient ambient-blue" aria-hidden="true" />
+
+          {isEmpty && (
+            <section className="hero-copy">
+              <div className="hero-icon" aria-hidden="true">
+                *
+              </div>
+              <h1>Ask our AI anything</h1>
+              <p>
+                Query your data, inspect SQL, and surface project insights from a
+                calmer, more polished workspace.
+              </p>
+            </section>
+          )}
+
+          <section
+            ref={messagesRef}
+            className="messages"
+            aria-live="polite"
+            onScroll={updateScrollState}
+          >
+            {isEmpty ? (
+              <div className="empty-state">
+                <p className="suggestions-label">Suggestions on what to ask Our AI</p>
+                <div className="suggestions-grid">
+                  {SUGGESTIONS.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      className="suggestion-chip"
+                      onClick={() => {
+                        setQuery(suggestion);
+                        sendQuery(suggestion);
+                      }}
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              messages.map((msg, index) => (
+                <article
+                  key={`${msg.role}-${index}`}
+                  className={`message message-${msg.role} ${
+                    msg.tone === "error" ? "message-error" : ""
+                  }`}
+                >
+                  <div className="message-meta">
+                    {msg.role === "user" ? "You" : "Copilot"}
+                  </div>
+                  <p className="message-content">{msg.content}</p>
+                </article>
+              ))
+            )}
+
+            {isLoading && (
+              <article className="message message-bot message-loading">
+                <div className="message-meta">Copilot</div>
+                <p className="message-content">
+                  Thinking
+                  <span className="loading-dots" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                </p>
+              </article>
+            )}
+          </section>
+
+          {showScrollToBottom && !isEmpty && (
+            <button
+              type="button"
+              className="scroll-to-bottom"
+              onClick={scrollToBottom}
+              aria-label="Scroll to latest message"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 5V17M12 17L7 12M12 17L17 12"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          )}
+
+          <form className="composer" onSubmit={handleSubmit}>
+            <input
+              className="composer-input"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Ask me anything about your Data"
+            />
+            <button
+              type="submit"
+              className="composer-submit"
+              disabled={isLoading}
+              aria-label="Send message"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M3 20L21 12L3 4L6.5 11L14 12L6.5 13L3 20Z"
+                  fill="currentColor"
+                />
+              </svg>
+            </button>
+          </form>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+export default App;
