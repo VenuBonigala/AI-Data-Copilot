@@ -1,12 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
-const SUGGESTIONS = [
-  "What can I ask you to do?",
-  "Which one of my projects is performing the best?",
-  "What projects should I be concerned about right now?",
-];
-
 const HISTORY_STORAGE_KEY = "copilot-chat-history";
 const SIDEBAR_STORAGE_KEY = "copilot-sidebar-open";
 const EMPTY_MESSAGES = [];
@@ -131,13 +125,19 @@ function App() {
     const savedState = localStorage.getItem(SIDEBAR_STORAGE_KEY);
     return savedState ? savedState === "true" : true;
   });
+  const [isMobileView, setIsMobileView] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.innerWidth <= 900;
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [historyMenu, setHistoryMenu] = useState(null);
   const [theme, setTheme] = useState(() => {
     const savedTheme = localStorage.getItem("copilot-theme");
     return savedTheme || "light";
   });
   const messagesRef = useRef(null);
+  const sidebarRef = useRef(null);
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId) || chats[0],
     [activeChatId, chats]
@@ -158,6 +158,19 @@ function App() {
   }, [isSidebarOpen]);
 
   useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 900px)");
+    const syncMobileView = (event) => {
+      setIsMobileView(event.matches);
+    };
+
+    mediaQuery.addEventListener("change", syncMobileView);
+
+    return () => {
+      mediaQuery.removeEventListener("change", syncMobileView);
+    };
+  }, []);
+
+  useEffect(() => {
     const container = messagesRef.current;
     if (!container) return;
 
@@ -167,6 +180,22 @@ function App() {
     });
     setShowScrollToBottom(false);
   }, [messages, isLoading]);
+
+  useEffect(() => {
+    if (!historyMenu) return;
+
+    const closeHistoryMenu = () => {
+      setHistoryMenu(null);
+    };
+
+    window.addEventListener("click", closeHistoryMenu);
+    window.addEventListener("scroll", closeHistoryMenu, true);
+
+    return () => {
+      window.removeEventListener("click", closeHistoryMenu);
+      window.removeEventListener("scroll", closeHistoryMenu, true);
+    };
+  }, [historyMenu]);
 
   const updateScrollState = () => {
     const container = messagesRef.current;
@@ -197,11 +226,58 @@ function App() {
     setActiveChatId(nextChat.id);
     setQuery("");
     setShowScrollToBottom(false);
+    if (isMobileView) {
+      setIsSidebarOpen(false);
+    }
   };
 
   const selectChat = (chatId) => {
     if (isLoading) return;
     setActiveChatId(chatId);
+    setQuery("");
+    setShowScrollToBottom(false);
+    if (isMobileView) {
+      setIsSidebarOpen(false);
+    }
+  };
+
+  const openHistoryMenu = (event, chatId) => {
+    event.preventDefault();
+
+    const sidebarRect = sidebarRef.current?.getBoundingClientRect();
+    const menuWidth = 152;
+    const menuHeight = 52;
+    const fallbackLeft = event.clientX;
+    const fallbackTop = event.clientY;
+
+    const left = sidebarRect
+      ? Math.min(
+          Math.max(event.clientX - sidebarRect.left, 8),
+          sidebarRect.width - menuWidth - 8
+        )
+      : fallbackLeft;
+    const top = sidebarRect
+      ? Math.min(
+          Math.max(event.clientY - sidebarRect.top, 8),
+          sidebarRect.height - menuHeight - 8
+        )
+      : fallbackTop;
+
+    setHistoryMenu({ chatId, left, top });
+  };
+
+  const deleteChat = (chatId) => {
+    const remainingChats = chats.filter((chat) => chat.id !== chatId);
+    const nextChats = remainingChats.length ? remainingChats : [createChat()];
+    const nextActiveChatId =
+      activeChatId === chatId ? nextChats[0].id : activeChatId;
+
+    setChatState((currentState) => ({
+      ...currentState,
+      chats: nextChats,
+      activeChatId: nextActiveChatId,
+    }));
+    setHistoryMenu(null);
     setQuery("");
     setShowScrollToBottom(false);
   };
@@ -296,7 +372,7 @@ function App() {
         </span>
       </button>
 
-      <aside className="sidebar" aria-label="Chat history">
+      <aside ref={sidebarRef} className="sidebar" aria-label="Chat history">
         <div className="sidebar-header">
           <div className="sidebar-brand">
             <span className="sidebar-logo" aria-hidden="true">
@@ -327,6 +403,7 @@ function App() {
                     chat.id === activeChat?.id ? "is-active" : ""
                   }`}
                   onClick={() => selectChat(chat.id)}
+                  onContextMenu={(event) => openHistoryMenu(event, chat.id)}
                 >
                   <span className="history-title">{chat.title}</span>
                   <span className="history-preview">
@@ -340,46 +417,26 @@ function App() {
             })}
           </div>
         </div>
-      </aside>
 
-      <div className="app-frame">
-        {isEmpty && (
-          <nav className="topbar">
-            <div className="brand">
-              <span className="brand-mark" aria-hidden="true">
-                AI
-              </span>
-              <div>
-                <p className="brand-title">AI Data Copilot</p>
-                <p className="brand-subtitle">Database analytics assistant</p>
-              </div>
-            </div>
-
+        {historyMenu && (
+          <div
+            className="history-menu"
+            style={{ left: historyMenu.left, top: historyMenu.top }}
+          >
             <button
               type="button"
-              className="theme-toggle"
-              onClick={toggleTheme}
-              aria-label={`Switch to ${
-                theme === "light" ? "dark" : "light"
-              } mode`}
+              className="history-menu-action danger"
+              onClick={() => deleteChat(historyMenu.chatId)}
             >
-              <span className="theme-icon">
-                <SunIcon />
-              </span>
-              <span className="theme-toggle-track" aria-hidden="true">
-                <span className="theme-toggle-thumb" />
-              </span>
-              <span className="theme-icon">
-                <MoonIcon />
-              </span>
+              Delete chat
             </button>
-          </nav>
+          </div>
         )}
 
-        {!isEmpty && (
+        <div className="sidebar-footer">
           <button
             type="button"
-            className="theme-toggle theme-toggle-floating"
+            className="theme-toggle sidebar-theme-toggle"
             onClick={toggleTheme}
             aria-label={`Switch to ${
               theme === "light" ? "dark" : "light"
@@ -395,11 +452,45 @@ function App() {
               <MoonIcon />
             </span>
           </button>
+        </div>
+      </aside>
+
+      {isMobileView && isSidebarOpen && (
+        <button
+          type="button"
+          className="sidebar-backdrop"
+          onClick={() => setIsSidebarOpen(false)}
+          aria-label="Close sidebar"
+        />
+      )}
+
+      <div className="app-frame">
+        {isEmpty && (
+          <nav className="topbar">
+            <div className="brand">
+              <span className="brand-mark" aria-hidden="true">
+                AI
+              </span>
+              <div>
+                <p className="brand-title">AI Data Copilot</p>
+                <p className="brand-subtitle">Database analytics assistant</p>
+              </div>
+            </div>
+          </nav>
         )}
 
         <main className={`hero-panel ${isEmpty ? "is-empty" : "has-chat"}`}>
           <div className="ambient ambient-pink" aria-hidden="true" />
           <div className="ambient ambient-blue" aria-hidden="true" />
+
+          {!isEmpty && (
+            <div className="mobile-chatbar">
+              <div className="mobile-chatbar-title">
+                <span className="mobile-chatbar-label">Current chat</span>
+                <span className="mobile-chatbar-name">{activeChat?.title}</span>
+              </div>
+            </div>
+          )}
 
           {isEmpty && (
             <section className="hero-copy">
@@ -420,26 +511,7 @@ function App() {
             aria-live="polite"
             onScroll={updateScrollState}
           >
-            {isEmpty ? (
-              <div className="empty-state">
-                <p className="suggestions-label">Suggestions on what to ask Our AI</p>
-                <div className="suggestions-grid">
-                  {SUGGESTIONS.map((suggestion) => (
-                    <button
-                      key={suggestion}
-                      type="button"
-                      className="suggestion-chip"
-                      onClick={() => {
-                        setQuery(suggestion);
-                        sendQuery(suggestion);
-                      }}
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
+            {isEmpty ? null : (
               messages.map((msg, index) => (
                 <article
                   key={`${msg.role}-${index}`}
