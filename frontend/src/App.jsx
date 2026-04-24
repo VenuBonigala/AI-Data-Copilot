@@ -1,4 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import "./App.css";
 
 const HISTORY_STORAGE_KEY = "copilot-chat-history";
@@ -72,7 +81,19 @@ const formatBotMessage = (data) => {
     return {
       role: "bot",
       tone: "error",
+      responseType: "text",
+      data: [],
       content: `${data.error}${data.details ? `\n${data.details}` : ""}`,
+    };
+  }
+
+  if (data.type) {
+    return {
+      role: "bot",
+      tone: "default",
+      responseType: data.type,
+      data: Array.isArray(data.data) ? data.data : [],
+      content: data.message || "No response was returned.",
     };
   }
 
@@ -80,6 +101,8 @@ const formatBotMessage = (data) => {
     return {
       role: "bot",
       tone: "default",
+      responseType: "text",
+      data: [],
       content: data.result || "No explanation was returned.",
     };
   }
@@ -87,6 +110,8 @@ const formatBotMessage = (data) => {
   return {
     role: "bot",
     tone: "default",
+    responseType: "text",
+    data: [],
     content: `SQL: ${data.sql || "N/A"}\n\nResult:\n${JSON.stringify(
       data.result,
       null,
@@ -94,6 +119,109 @@ const formatBotMessage = (data) => {
     )}`,
   };
 };
+
+const getChartConfig = (rows) => {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+
+  const sample = rows[0];
+  const keys = Object.keys(sample);
+
+  const xKey = keys.find((k) => !k.toLowerCase().includes("id")) || keys[0];
+
+  const yKey = keys.find(
+    (k) => typeof sample[k] === "number" && !k.toLowerCase().includes("id"),
+  );
+
+  if (!yKey) return null;
+
+  return { xKey, yKey };
+};
+
+function BotStructuredContent({ message }) {
+  const rows = Array.isArray(message.data) ? message.data : [];
+
+  if (message.responseType === "table" && rows.length > 0) {
+    const columns = Object.keys(rows[0] || {});
+
+    return (
+      <div className="bot-visual table-visual">
+        <div className="table-shell">
+          <table className="data-table">
+            <thead>
+              <tr>
+                {columns.map((column) => (
+                  <th key={column}>{column}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, rowIndex) => (
+                <tr key={`row-${rowIndex}`}>
+                  {columns.map((column) => (
+                    <td key={`${rowIndex}-${column}`}>
+                      {row?.[column] ?? "-"}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  if (message.responseType === "chart" && rows.length > 0) {
+    const chartConfig = getChartConfig(rows);
+
+    if (!chartConfig) {
+      return <p>No valid data for chart</p>;
+    }
+
+    return (
+      <div className="bot-visual chart-visual">
+        <div className="chart-shell">
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={rows} margin={{ top: 8, right: 16, left: -18, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 129, 138, 0.22)" />
+              <XAxis
+                dataKey={chartConfig.xKey}
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: "currentColor", fontSize: 12 }}
+              />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: "currentColor", fontSize: 12 }}
+              />
+              <Tooltip
+                contentStyle={{
+                  borderRadius: 14,
+                  border: "1px solid rgba(148, 129, 138, 0.2)",
+                  background: "rgba(255,255,255,0.96)",
+                }}
+              />
+              <Bar
+                dataKey={chartConfig.yKey}
+                fill="url(#chartGradient)"
+                radius={[10, 10, 4, 4]}
+              />
+              <defs>
+                <linearGradient id="chartGradient" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor="#f08ac5" />
+                  <stop offset="100%" stopColor="#6d4ef4" />
+                </linearGradient>
+              </defs>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
 
 function App() {
   const [query, setQuery] = useState("");
@@ -522,7 +650,12 @@ function App() {
                   <div className="message-meta">
                     {msg.role === "user" ? "You" : "Copilot"}
                   </div>
-                  <p className="message-content">{msg.content}</p>
+                  {msg.content ? (
+                    <p className="message-content">{msg.content}</p>
+                  ) : null}
+                  {msg.role === "bot" ? (
+                    <BotStructuredContent message={msg} />
+                  ) : null}
                 </article>
               ))
             )}
