@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
 const SUGGESTIONS = [
@@ -6,6 +6,46 @@ const SUGGESTIONS = [
   "Which one of my projects is performing the best?",
   "What projects should I be concerned about right now?",
 ];
+
+const HISTORY_STORAGE_KEY = "copilot-chat-history";
+const SIDEBAR_STORAGE_KEY = "copilot-sidebar-open";
+const EMPTY_MESSAGES = [];
+
+const createChat = (messages = []) => ({
+  id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  title: "New chat",
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+  messages,
+});
+
+const getChatTitle = (messages) => {
+  const firstUserMessage = messages.find((message) => message.role === "user");
+  if (!firstUserMessage) return "New chat";
+
+  return firstUserMessage.content.length > 42
+    ? `${firstUserMessage.content.slice(0, 42)}...`
+    : firstUserMessage.content;
+};
+
+const formatHistoryDate = (value) =>
+  new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+
+const loadInitialChats = () => {
+  try {
+    const savedChats = JSON.parse(
+      localStorage.getItem(HISTORY_STORAGE_KEY) || "[]"
+    );
+    return savedChats.length ? savedChats : [createChat()];
+  } catch {
+    return [createChat()];
+  }
+};
 
 const SunIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -63,7 +103,34 @@ const formatBotMessage = (data) => {
 
 function App() {
   const [query, setQuery] = useState("");
-  const [messages, setMessages] = useState([]);
+  const [chatState, setChatState] = useState(() => {
+    const initialChats = loadInitialChats();
+    return {
+      chats: initialChats,
+      activeChatId: initialChats[0]?.id || null,
+    };
+  });
+  const { chats, activeChatId } = chatState;
+  const setChats = (updater) => {
+    setChatState((currentState) => ({
+      ...currentState,
+      chats:
+        typeof updater === "function" ? updater(currentState.chats) : updater,
+    }));
+  };
+  const setActiveChatId = (updater) => {
+    setChatState((currentState) => ({
+      ...currentState,
+      activeChatId:
+        typeof updater === "function"
+          ? updater(currentState.activeChatId)
+          : updater,
+    }));
+  };
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    const savedState = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    return savedState ? savedState === "true" : true;
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [theme, setTheme] = useState(() => {
@@ -71,11 +138,24 @@ function App() {
     return savedTheme || "light";
   });
   const messagesRef = useRef(null);
+  const activeChat = useMemo(
+    () => chats.find((chat) => chat.id === activeChatId) || chats[0],
+    [activeChatId, chats]
+  );
+  const messages = activeChat?.messages ?? EMPTY_MESSAGES;
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("copilot-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(chats));
+  }, [chats]);
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_STORAGE_KEY, String(isSidebarOpen));
+  }, [isSidebarOpen]);
 
   useEffect(() => {
     const container = messagesRef.current;
@@ -111,12 +191,40 @@ function App() {
     setTheme((currentTheme) => (currentTheme === "light" ? "dark" : "light"));
   };
 
+  const startNewChat = () => {
+    const nextChat = createChat();
+    setChats((prevChats) => [nextChat, ...prevChats]);
+    setActiveChatId(nextChat.id);
+    setQuery("");
+    setShowScrollToBottom(false);
+  };
+
+  const selectChat = (chatId) => {
+    if (isLoading) return;
+    setActiveChatId(chatId);
+    setQuery("");
+    setShowScrollToBottom(false);
+  };
+
   const sendQuery = async (nextQuery) => {
     const value = (nextQuery ?? query).trim();
-    if (!value || isLoading) return;
+    const targetChatId = activeChat?.id;
+    if (!value || isLoading || !targetChatId) return;
 
     const userMessage = { role: "user", content: value };
-    setMessages((prev) => [...prev, userMessage]);
+    setChats((prevChats) =>
+      prevChats.map((chat) => {
+        if (chat.id !== targetChatId) return chat;
+
+        const nextMessages = [...chat.messages, userMessage];
+        return {
+          ...chat,
+          title: getChatTitle(nextMessages),
+          messages: nextMessages,
+          updatedAt: new Date().toISOString(),
+        };
+      })
+    );
     setIsLoading(true);
     setQuery("");
 
@@ -130,16 +238,35 @@ function App() {
       });
 
       const data = await res.json();
-      setMessages((prev) => [...prev, formatBotMessage(data)]);
+      const botMessage = formatBotMessage(data);
+      setChats((prevChats) =>
+        prevChats.map((chat) =>
+          chat.id === targetChatId
+            ? {
+                ...chat,
+                messages: [...chat.messages, botMessage],
+                updatedAt: new Date().toISOString(),
+              }
+            : chat
+        )
+      );
     } catch (error) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "bot",
-          tone: "error",
-          content: `Server error\n${error.message}`,
-        },
-      ]);
+      const errorMessage = {
+        role: "bot",
+        tone: "error",
+        content: `Server error\n${error.message}`,
+      };
+      setChats((prevChats) =>
+        prevChats.map((chat) =>
+          chat.id === targetChatId
+            ? {
+                ...chat,
+                messages: [...chat.messages, errorMessage],
+                updatedAt: new Date().toISOString(),
+              }
+            : chat
+        )
+      );
     } finally {
       setIsLoading(false);
     }
@@ -153,13 +280,74 @@ function App() {
   const isEmpty = messages.length === 0;
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell ${
+        isSidebarOpen ? "sidebar-open" : "sidebar-closed"
+      }`}
+    >
+      <button
+        type="button"
+        className="logo-toggle"
+        onClick={() => setIsSidebarOpen((currentState) => !currentState)}
+        aria-label={isSidebarOpen ? "Collapse sidebar" : "Open sidebar"}
+      >
+        <span className="logo-mark" aria-hidden="true">
+          AI
+        </span>
+      </button>
+
+      <aside className="sidebar" aria-label="Chat history">
+        <div className="sidebar-header">
+          <div className="sidebar-brand">
+            <span className="sidebar-logo" aria-hidden="true">
+              AI
+            </span>
+            <div>
+              <p className="sidebar-title">AI Data Copilot</p>
+              <p className="sidebar-subtitle">Workspace</p>
+            </div>
+          </div>
+        </div>
+
+        <button type="button" className="new-chat-button" onClick={startNewChat}>
+          <span aria-hidden="true">+</span>
+          New Chat
+        </button>
+
+        <div className="history-section">
+          <p className="history-label">Chat history</p>
+          <div className="history-list">
+            {chats.map((chat) => {
+              const lastMessage = chat.messages.at(-1);
+              return (
+                <button
+                  key={chat.id}
+                  type="button"
+                  className={`history-item ${
+                    chat.id === activeChat?.id ? "is-active" : ""
+                  }`}
+                  onClick={() => selectChat(chat.id)}
+                >
+                  <span className="history-title">{chat.title}</span>
+                  <span className="history-preview">
+                    {lastMessage?.content || "Start a new conversation"}
+                  </span>
+                  <span className="history-date">
+                    {formatHistoryDate(chat.updatedAt)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </aside>
+
       <div className="app-frame">
         {isEmpty && (
           <nav className="topbar">
             <div className="brand">
               <span className="brand-mark" aria-hidden="true">
-                *
+                AI
               </span>
               <div>
                 <p className="brand-title">AI Data Copilot</p>
@@ -216,7 +404,7 @@ function App() {
           {isEmpty && (
             <section className="hero-copy">
               <div className="hero-icon" aria-hidden="true">
-                *
+                AI
               </div>
               <h1>Ask our AI anything</h1>
               <p>
