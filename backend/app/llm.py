@@ -38,6 +38,7 @@ def decide_and_generate(user_query: str):
       Rules:
       - Only generate SELECT queries
       - DO NOT generate DELETE, DROP, ALTER, TRUNCATE
+      - If user asks for modification, respond with action "reject"
       - Use proper JOINs when needed
       - Only return SQL query (no explanation)
       - Respond only in this JSON format:

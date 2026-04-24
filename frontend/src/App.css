@@ -681,6 +681,51 @@ button {
   line-height: 1.6;
 }
 
+.bot-visual {
+  margin-top: 14px;
+}
+
+.table-shell,
+.chart-shell {
+  border: 1px solid var(--frame-border);
+  border-radius: 16px;
+  background: var(--surface-strong);
+  overflow: hidden;
+}
+
+.table-shell {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 420px;
+}
+
+.data-table th,
+.data-table td {
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--frame-border);
+  font-size: 0.92rem;
+}
+
+.data-table th {
+  background: var(--surface);
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.chart-shell {
+  padding: 10px 10px 4px;
+  color: var(--text-secondary);
+}
+
 .message-loading {
   opacity: 0.92;
 }
@@ -889,6 +934,10 @@ button {
     max-width: min(92%, 720px);
     padding: 14px 16px;
     border-radius: 18px;
+  }
+
+  .data-table {
+    min-width: 360px;
   }
 
   .composer {
