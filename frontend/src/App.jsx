@@ -229,7 +229,7 @@ function App() {
     setQuery("");
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/query", {
+      const res = await fetch("https://ai-data-copilot-backend.onrender.com", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
